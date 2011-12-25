@@ -1,0 +1,35 @@
+Python System Monitor (Psymon)
+is a cross-platform, task and performance monitor.
+
+(C) 2011-2012 Dimitris Diamantis
+
+Psymon is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License 3 as published by
+the Free Software Foundation.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+See the GNU General Public License for more details.
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see [http://www.gnu.org/licenses/].
+
+
+-----------------------------other-----------------------------
+*The icons of psymon taken from oxygen icon-pack
+Licence: GNU GPL3 or CreativeCommons by-sa 3
+Site: http://www.oxygen-icons.org/
+
+*The main icon of psymon based on the icons "utilities-system-monitor" and
+"python" of the oxygencolors icon-pack.
+Licence: GNU GPL3 and/or CreativeCommons nc-sa 3
+Site: http://kde-look.org/content/show.php/oxygencolors?content=104048
+
+*The code of psymon plotters based on the example program CPUplot.py 
+of the Python(x,y) project.
+License: GNU GPL3
+Site: http://code.google.com/p/pythonxy/
+
+*The code of psymon process table based on the example program top.py
+of the psutil project.
+License: BSD
+Site: http://code.google.com/p/psutil/
