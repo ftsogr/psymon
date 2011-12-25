@@ -1,0 +1,1609 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+'''
+(C) Dimitris Diamantis 2011-12
+
+This file is part of Psymon.
+
+Psymon is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+Psymon is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with Psymon.  If not, see <http://www.gnu.org/licenses/>.
+'''
+
+# Import general python modules
+import sys
+import os
+import datetime
+import time
+import re
+import glob
+import __builtin__
+
+from PyQt4.QtCore import pyqtSlot, QString, QThread,QTranslator,QLocale
+from PyQt4.QtGui import QMainWindow, QApplication, QTreeWidgetItem
+from psutil.error import NoSuchProcess, AccessDenied
+
+# Import psymon python modules
+import psymondatapack as data
+from psymondatapack.main_window import *
+import psymondatapack.proc_details_plotter as proc_details_plotter
+import psymondatapack.psymon_settings as psymon_settings
+import psymondatapack.psymon_about as psymon_about
+import psymondatapack.psymon_help as psymon_help
+
+# utf8 strings
+try:
+    _fromUtf8 = QtCore.QString.fromUtf8
+except AttributeError:
+    _fromUtf8 = lambda s: s
+
+# Psymon version
+__builtin__.version = "1.0"
+
+
+# Psymon INIT
+def psymon_init():
+    __builtin__._disk = "None"
+    __builtin__._netif = "None"
+    __builtin__.PROCESSgrTIMELINE = "None"
+    __builtin__.iconspath = ""
+    
+    #translation
+    global translations
+    
+    if os.name == 'nt':
+        translations = "psymondatapack\\translations\\"
+    else:
+        translations = os.path.join(data.__path__[0] ,"translations/")
+    
+    QtCore.QCoreApplication.setApplicationName("Psymon")
+    QtCore.QCoreApplication.setOrganizationName("Psymon")
+    settings = QtCore.QSettings()
+    
+    settings.beginGroup("Application_Look")
+    language = settings.value("Language").toString()
+    settings.endGroup()
+    
+    
+    if os.path.exists(translations+"psymon_tr_"+language+".qm") == True:
+        translator = QTranslator(app)
+        translator.load(translations+"psymon_tr_"+language+".qm")
+        app.installTranslator(translator)
+    else:        
+        locale = QLocale.system().name()
+        locale.truncate(locale.lastIndexOf('_'))
+        if os.path.exists(translations) == True:
+            translator = QTranslator(app)
+            translator.load(translations+"psymon_tr_"+locale+".qm")
+            app.installTranslator(translator)
+            
+    #iconspath
+    if os.name == 'nt':
+        __builtin__.iconspath = "psymondatapack\\icons\\"
+    else:
+        iconspath = os.path.join(data.__path__[0] ,"icons/")
+        __builtin__.iconspath = iconspath
+        psymonicon = os.path.join(iconspath ,"psymon.png")
+        __builtin__.psymonicon = psymonicon
+
+
+
+# Main window
+class MainWin(QMainWindow):
+
+###INIT###
+    
+
+    def __init__(self,parent = None):
+                
+        #init
+        QMainWindow.__init__(self)
+        self.ui=Ui_MainWindow()
+        self.ui.setupUi(self)
+        
+        #windowicon
+        if os.name == 'nt':
+            self.setWindowIcon(QtGui.QIcon("psymondatapack\\icons\\psymon.png"))
+        else:
+            self.setWindowIcon(QtGui.QIcon(psymonicon))
+
+        #process_table_header_sections_size
+        for hc in range(self.ui.treeWidget.header().count()):
+            hcs = self.ui.treeWidget.header().sectionSizeHint(hc)
+            self.ui.treeWidget.header().resizeSection(hc,hcs)
+        self.ui.treeWidget.header().resizeSection(0,200)
+        self.ui.treeWidget.header().resizeSection(self.ui.treeWidget.header().count()-1,500)
+        
+        #window_size
+        screen_h=app.desktop().screenGeometry().height() 
+        screen_w=app.desktop().screenGeometry().width()
+        self.resize(int(screen_w*0.6), int(screen_h*0.6))
+        
+        
+###SLOTS and SLOTS###    
+    @pyqtSlot(int)    
+    def on_treeWidgetHeader_sectionClicked(self,_col):
+        self.customSortByColumn(_col)
+    
+
+    @pyqtSlot(int)
+    def on_tabWidget_currentChanged(self,_tab):
+        global proc_stop_exists,_proc_stop_exists
+        try:
+            if proc_stop_exists == True:
+                QtGui.QMessageBox.critical(self,"(Psymon) Error)",_proc_stop_exists+QtGui.QApplication.translate("MainWindow",
+                                                    "...stop existing!", None, QtGui.QApplication.UnicodeUTF8))
+                proc_stop_exists = False
+        except(NameError):
+            pass
+        self.tabFocus(_tab)
+
+    @pyqtSlot()
+    def on_menuConfig_triggered(self):
+        self.settings_run()
+    
+    @pyqtSlot()
+    def on_actionFullscreen_triggered(self):
+        if self.ui.action_Fullscreen.isChecked() == False:
+            self.showNormal()
+            self.ui.action_Fullscreen.setChecked(False)
+        else:
+            self.showFullScreen()
+            self.ui.action_Fullscreen.setChecked(True)
+    
+    @pyqtSlot()
+    def on_actionaboutQt_triggered(self):
+        QtGui.QMessageBox.aboutQt(self,"About Qt")
+
+    @pyqtSlot()
+    def on_actionhelpPsymon_triggered(self):
+        global hlpwin
+        try:
+            hlpwin.hide()
+        except(NameError):
+            pass
+        
+        self.Psymon_Help = QtGui.QDialog(self)
+        self.Ph = psymon_help.Ui_Psymon_Help()
+        self.Ph.ui = self.Ph.setupUi(self.Psymon_Help)
+        hlpwin = self.Psymon_Help
+        hlpwin.show()
+
+
+    @pyqtSlot()
+    def on_actionaboutPsymon_triggered(self):
+        global abtwin
+        try:
+            abtwin.hide()
+        except(NameError):
+            pass
+        
+        self.Psymon_About = QtGui.QDialog(self)
+        self.Pa = psymon_about.Ui_Psymon_About()
+        self.Pa.ui = self.Pa.setupUi(self.Psymon_About)
+        abtwin = self.Psymon_About
+        abtwin.show()
+
+    @pyqtSlot()
+    def on_actionQuit_triggered(self):
+        app.quit()
+        
+    @pyqtSlot(QString)
+    def on_comboBox_currentIndexChanged(self):
+        global selected_item_onswitch
+        try:
+            selected_item_onswitch=self.ui.treeWidget.selectedItems()
+        except (IndexError):
+            selected_item_onswitch=None
+        else:            
+            self.ui.treeWidget.clearSelection()
+        self.ui.treeWidget.clear()
+        self.ui.lineEdit.clear()
+        global table_thread
+        global tree_thread
+        if self.ui.comboBox.currentIndex() == 0:
+                tree_thread.terminate()
+                tree_thread.wait() 
+                tree_thread = None
+                self.ui.treeWidget.setRootIsDecorated(False)
+                self.ui.treeWidget.setItemsExpandable(False)
+                self.ui.treeWidget.setAnimated(False)
+                table_thread = TableThread()
+                tree_thread = TreeThread()
+                table_thread.start()
+        else:
+                table_thread.terminate()
+                table_thread.wait()
+                table_thread = None
+                self.ui.treeWidget.setRootIsDecorated(True)
+                self.ui.treeWidget.setItemsExpandable(True)
+                self.ui.treeWidget.setAnimated(True)
+                table_thread = TableThread()
+                tree_thread = TreeThread()
+                tree_thread.start()
+                    
+    @pyqtSlot(QString)
+    def on_lineEdit_textEdited(self,searchtext):
+        for list_item in self.ui.treeWidget.findItems("*",
+                        Qt.MatchWildcard|Qt.MatchRecursive,0):            
+            if searchtext != None and searchtext in ("$","\\","*","(",")","+"):
+                pass
+            elif searchtext != None and (
+                re.search(str(searchtext),list_item.text(0),flags=re.IGNORECASE)
+                or re.search(str(searchtext),list_item.text(1),flags=re.IGNORECASE)                        
+                or re.search(str(searchtext),list_item.text(2),flags=re.IGNORECASE)) != None:
+                
+                if list_item.parent() == None :
+                    list_item.setHidden(False)
+                else:
+                    while list_item.parent() != None:
+                        list_item.parent().setHidden(False)
+                        list_item.setHidden(False)
+                        self.ui.treeWidget.expandItem(list_item.parent())
+                        list_item = list_item.parent()            
+            else:
+                list_item.setHidden(True)
+
+    @pyqtSlot(QString)
+    def on_lineEdit2_textEdited(self,searchtext): 
+        for list_item in self.ui.treeWidget_10.findItems("*",
+                        Qt.MatchWildcard|Qt.MatchRecursive,0):            
+            if searchtext != None and searchtext in ("$","\\","*","(",")","+"):
+                pass
+            elif searchtext != None and (
+                re.search(str(searchtext),list_item.text(0),flags=re.IGNORECASE)
+                or re.search(str(searchtext),list_item.text(1),flags=re.IGNORECASE)
+                or re.search(str(searchtext),list_item.text(2),flags=re.IGNORECASE)
+                or re.search(str(searchtext),list_item.text(3),flags=re.IGNORECASE)
+                or re.search(str(searchtext),list_item.text(4),flags=re.IGNORECASE)) != None:
+                
+                list_item.setHidden(False)       
+            else:
+                list_item.setHidden(True)
+            
+    @pyqtSlot()
+    def on_pushButton_clicked(self):
+        proc_list = [p for p in psutil.process_iter()]  
+        for proc in proc_list:
+            try:
+                proc.name
+                selected_item_pid=self.ui.treeWidget.selectedItems()[0].text(1)
+            except (AccessDenied, NoSuchProcess,IndexError):
+                pass
+            else:
+                if str(proc.pid) == str(selected_item_pid):
+                    try:
+                        proc.terminate()
+                    except(AccessDenied):
+                        QtGui.QMessageBox.critical(self, 'Error (Psymon)',QtGui.QApplication.translate("MainWindow",
+                                                    "Permission denied!\nYou should run Psymon as administrator.", 
+                                                                                None, QtGui.QApplication.UnicodeUTF8))
+
+    def on_menuQstyle_triggered(self,_action):
+        for act in self.ui.menuQstyle.actions():
+            act.setChecked(False)
+        _action.text()
+        _action.setChecked(True)
+        app.setStyle(_action.text())
+
+    def on_menuTabsAlign_triggered(self,_action):
+        if _action.text() == "Center":
+            self.ui.tabWidget.setStyleSheet("QTabWidget::tab-bar{alignment: center;}")
+        elif _action.text() == "Left":
+            self.ui.tabWidget.setStyleSheet("")
+        elif _action.text() == "Right":
+            self.ui.tabWidget.setStyleSheet("QTabWidget::tab-bar{alignment: right;}")
+        else:
+            self.ui.tabWidget.setStyleSheet("")
+            
+    def on_treeWidget_itemDoubleClicked(self):
+        self.ui.tabWidget.setCurrentIndex(4)
+
+    def on_treeWidget_50_itemSelectionChanged(self):
+        global item_change_50
+        item_change_50 = True
+
+    def on_treeWidget_50_itemClicked(self,scol):
+        global item_change_50
+        if item_change_50 == True:
+            item_change_50 = False
+            try:
+                _selection = self.ui.treeWidget_50.selectedItems()[0].text(0)
+                value = float(scol.text(6))
+            except (IndexError):
+                __builtin__._disk = "None"
+                self.ui.plotter5.deleteLater()
+                self.ui.plot5.deleteLater()
+                self.ui.labelplot5.setText(QtGui.QApplication.translate("MainWindow",
+                        "<b>Disks I/O History</b>", None, QtGui.QApplication.UnicodeUTF8))
+                self.ui.plot5 = Qwt.QwtPlot()
+                self.ui.plotter5 = diskplotter.DiskPlot(self.ui.plot5)
+                self.ui.gridLayout_50.addWidget(self.ui.labelplot5, 0, 0, 1, 1)
+                self.ui.gridLayout_50.addWidget(self.ui.plotter5, 1, 0, 1, 5)
+            else:
+                self.ui.progressBar.setValue(value)
+                for _pdisk in psutil.disk_io_counters(perdisk=True):
+                    if _pdisk in _selection:
+                        __builtin__._disk = _pdisk
+                        self.ui.plotter5.deleteLater()
+                        self.ui.plot5.deleteLater()
+                        self.ui.labelplot5.setText(QtGui.QApplication.translate("MainWindow","<b>Disk<b> (", 
+                                    None, QtGui.QApplication.UnicodeUTF8)+_pdisk+QtGui.QApplication.translate("MainWindow",
+                                                        ") </b>I/O History</b>", None, QtGui.QApplication.UnicodeUTF8))
+                        self.ui.plot5 = Qwt.QwtPlot()
+                        self.ui.plotter5 = diskplotter.DiskPlot(self.ui.plot5)
+                        self.ui.gridLayout_50.addWidget(self.ui.labelplot5, 0, 0, 1, 1)
+                        self.ui.gridLayout_50.addWidget(self.ui.plotter5, 1, 0, 1, 5)
+        else:
+            try:
+                _selection = self.ui.treeWidget_50.selectedItems()[0].text(0)
+            except (IndexError):
+                pass
+            else:
+                self.ui.treeWidget_50.clearSelection()
+            self.ui.progressBar.setValue(0)
+            __builtin__._disk = "None"
+            self.ui.plotter5.deleteLater()
+            self.ui.plot5.deleteLater()
+            self.ui.labelplot5.setText(QtGui.QApplication.translate("MainWindow","<b>Disks I/O History</b>", 
+                                                                None, QtGui.QApplication.UnicodeUTF8))
+            self.ui.plot5 = Qwt.QwtPlot()
+            self.ui.plotter5 = diskplotter.DiskPlot(self.ui.plot5)
+            self.ui.gridLayout_50.addWidget(self.ui.labelplot5, 0, 0, 1, 1)
+            self.ui.gridLayout_50.addWidget(self.ui.plotter5, 1, 0, 1, 5)
+
+    def on_treeWidget_11_itemSelectionChanged(self):
+        global item_change_11
+        item_change_11 = True
+
+    def on_treeWidget_11_itemClicked(self):
+        global item_change_11
+        if item_change_11 == True:
+            item_change_11 = False 
+            try:
+                _selection = self.ui.treeWidget_11.selectedItems()[0].text(0)
+            except (IndexError):
+                __builtin__._netif = "None"
+                self.ui.plotter3.deleteLater()
+                self.ui.plot3.deleteLater()
+                self.ui.labelplot3.setText(QtGui.QApplication.translate("MainWindow","<b>Netwok History</b>", 
+                                                                None, QtGui.QApplication.UnicodeUTF8))
+                self.ui.plot3 = Qwt.QwtPlot()
+                self.ui.plotter3 = networkplotter.NetworkPlot(self.ui.plot3)
+                self.ui.gridLayout_22.addWidget(self.ui.labelplot3, 0, 0, 1, 1)
+                self.ui.gridLayout_22.addWidget(self.ui.plotter3, 1, 0, 1, 5)
+            else:
+                _netif = _selection
+                __builtin__._netif = unicode(_netif)
+                self.ui.plotter3.deleteLater()
+                self.ui.plot3.deleteLater()
+                self.ui.labelplot3.setText(QtGui.QApplication.translate("MainWindow","<b>Interface<b> (", 
+                            None, QtGui.QApplication.UnicodeUTF8)+_netif+QtGui.QApplication.translate("MainWindow",
+                                                    ") </b>I/O History</b>",None, QtGui.QApplication.UnicodeUTF8))
+                self.ui.plot3 = Qwt.QwtPlot()
+                self.ui.plotter3 = networkplotter.NetworkPlot(self.ui.plot3)
+                self.ui.gridLayout_22.addWidget(self.ui.labelplot3, 0, 0, 1, 1)
+                self.ui.gridLayout_22.addWidget(self.ui.plotter3, 1, 0, 1, 5)
+        else:
+            try:
+                _selection = self.ui.treeWidget_11.selectedItems()[0].text(0)
+            except (IndexError):
+                pass
+            else:
+                self.ui.treeWidget_11.clearSelection()
+            __builtin__._netif = "None"
+            self.ui.plotter3.deleteLater()
+            self.ui.plot3.deleteLater()
+            self.ui.labelplot3.setText(QtGui.QApplication.translate("MainWindow","<b>Netwok History</b>", 
+                            None, QtGui.QApplication.UnicodeUTF8))
+            self.ui.plot3 = Qwt.QwtPlot()
+            self.ui.plotter3 = networkplotter.NetworkPlot(self.ui.plot3)
+            self.ui.gridLayout_22.addWidget(self.ui.labelplot3, 0, 0, 1, 1)
+            self.ui.gridLayout_22.addWidget(self.ui.plotter3, 1, 0, 1, 5)
+
+
+###SETTINGS###
+
+    def set_default_settings(self):
+        self.ui.settings.clear()
+        self.ui.settings.beginGroup("Application_Look")
+        self.ui.settings.setValue("Style", "Default")
+        self.ui.settings.setValue("Language", "en")
+        self.ui.settings.setValue("Tabs_orientation", "Default")
+        self.ui.settings.endGroup()
+        self.ui.settings.beginGroup("Process_Details_Tab")
+        self.ui.settings.setValue("Timeline_min_width", 10)
+        self.ui.settings.endGroup()
+        self.ui.settings.beginGroup("Process_Table_Tab")
+        self.ui.settings.setValue("Process_table_refresh", "Medium")
+        self.ui.settings.endGroup()
+        self.ui.settings.sync()
+
+    def get_settings(self):
+        self.ui.settings.beginGroup("Process_Table_Tab")
+        Process_table_refresh = self.ui.settings.value("Process_table_refresh").toString()
+        self.ui.settings.endGroup()
+        
+        self.ui.settings.beginGroup("Process_Details_Tab")
+        Process_Details_Tab_Timeline = self.ui.settings.value("Timeline_min_width").toInt()
+        self.ui.settings.endGroup()
+        
+        self.ui.settings.beginGroup("Application_Look")
+        Style = self.ui.settings.value("Style").toString()
+        Language = self.ui.settings.value("Language").toString()
+        Tabs_orientation =  self.ui.settings.value("Tabs_orientation").toString()
+        self.ui.settings.endGroup()
+                
+        try:
+            if Process_Details_Tab_Timeline[1] == False:
+                self.set_default_settings()
+                _Process_Details_Tab_Timeline = 10
+            else:
+                _Process_Details_Tab_Timeline =  Process_Details_Tab_Timeline[0]
+        except(IndexError):
+            _Process_Details_Tab_Timeline =  10
+        
+        if Style == "":
+            self.set_default_settings()
+            _Style = "Default"
+        else:
+            _Style = Style
+        
+        if Language == "":
+            self.set_default_settings()
+            _Language = "en"
+        else:
+            _Language = Language
+            
+        if Tabs_orientation == "":
+            self.set_default_settings()
+            _Tabs_orientation = "Left"
+        else:
+            _Tabs_orientation = Tabs_orientation
+        
+        if Process_table_refresh == "":
+            self.set_default_settings()
+            _Process_table_refresh = "Medium"
+        else:
+            _Process_table_refresh = Process_table_refresh
+        
+        return _Style,_Language,_Tabs_orientation,_Process_Details_Tab_Timeline,_Process_table_refresh
+
+    def settings_save(self):
+        gui_style = self.Ps.comboBox.currentText()
+        language = self.Ps.comboBox_1.currentText()
+        tabs_orientation = self.Ps.comboBox_2.currentText()
+        process_graph_timeline = self.Ps.spinBox_set.value()
+        process_table_refresh = self.Ps.comboBox_3.currentText()
+        self.ui.settings.clear()
+        self.ui.settings.beginGroup("Application_Look")
+        self.ui.settings.setValue("Style", gui_style)
+        self.ui.settings.setValue("Language", language)
+        self.ui.settings.setValue("Tabs_orientation", tabs_orientation)
+        self.ui.settings.endGroup()
+        self.ui.settings.beginGroup("Process_Details_Tab")
+        self.ui.settings.setValue("Timeline_min_width", process_graph_timeline)
+        self.ui.settings.endGroup()
+        self.ui.settings.beginGroup("Process_Table_Tab")
+        self.ui.settings.setValue("Process_table_refresh", process_table_refresh)
+        self.ui.settings.endGroup()
+        self.ui.settings.sync()
+        QtGui.QMessageBox.information(self,"(Psymon) Info)",QtGui.QApplication.translate("MainWindow",
+                        "Application restart is required for the language changes to take effect.", None, QtGui.QApplication.UnicodeUTF8))
+        self.settings_apply(gui_style,language,tabs_orientation,process_graph_timeline,process_table_refresh)
+
+    def settings_apply(self,gui_style,language,tabs_orientation,process_graph_timeline,process_table_refresh):
+        global TABLE_INTERVAL
+        
+        if process_table_refresh == "Fast":
+            TABLE_INTERVAL = 0.9
+        elif process_table_refresh == "Medium":
+            TABLE_INTERVAL = 2.9
+        elif process_table_refresh == "Slow":
+            TABLE_INTERVAL = 4.9
+        else:
+            TABLE_INTERVAL = 2.9
+
+        if tabs_orientation == "Center":
+            self.ui.tabWidget.setStyleSheet("QTabWidget::tab-bar{alignment: center;}")
+        elif tabs_orientation == "Left":
+            self.ui.tabWidget.setStyleSheet("")
+        elif tabs_orientation == "Right":
+            self.ui.tabWidget.setStyleSheet("QTabWidget::tab-bar{alignment: right;}")
+        else:
+            self.ui.tabWidget.setStyleSheet("")
+        
+        app.setStyle(gui_style)
+        
+        self.ui.tabWidget.setCurrentIndex(0)
+        __builtin__.PROCESSgrTIMELINE = process_graph_timeline
+        
+        
+    def init_settings(self):
+        gs = self.get_settings()      
+        self.settings_apply(gs[0],gs[1],gs[2],gs[3],gs[4])
+
+    def settings_run(self):   
+        global translations
+        global setwin
+        try:
+            setwin.hide()
+        except(NameError):
+            pass
+        
+        self.Psymon_Settings = QtGui.QDialog(self)
+        self.Ps = psymon_settings.Ui_Psymon_Settings()
+        self.Ps.ui = self.Ps.setupUi(self.Psymon_Settings)
+        setwin = self.Psymon_Settings
+        
+        
+        seti = self.get_settings()
+        stylelist = QtGui.QStyleFactory.keys()
+        default_style = QtGui.QApplication.style().objectName()
+        style_combo = 1
+        self.Ps.comboBox.addItem("Default")
+        self.Ps.comboBox.setItemText(0,"Default")
+        for style in stylelist:
+            self.Ps.comboBox.addItem(style)
+            self.Ps.comboBox.setItemText(style_combo,style)
+            if style == seti[0]:
+                self.Ps.comboBox.setCurrentIndex(style_combo)
+            else:
+                style = str(style)
+                default_style = str(default_style)
+                if str.lower(default_style) == str.lower(style):
+                    self.Ps.comboBox.setCurrentIndex(style_combo)
+            style_combo = style_combo + 1
+          
+        for tr in glob.glob(translations+"*.qm"): 
+            tran = os.path.basename(tr)[10:-3]
+            if tran == seti[1]:
+                self.Ps.comboBox_1.insertItem(0,tran)
+                self.Ps.comboBox_1.setCurrentIndex(0)
+            else:
+                self.Ps.comboBox_1.addItem(tran)
+            
+        if str.lower(str(seti[2])) == "left":
+            self.Ps.comboBox_2.setCurrentIndex(0)
+        elif str.lower(str(seti[2])) == "center":
+            self.Ps.comboBox_2.setCurrentIndex(1)
+        elif str.lower(str(seti[2])) == "right":
+            self.Ps.comboBox_2.setCurrentIndex(2)
+        else:
+            self.Ps.comboBox_2.setCurrentIndex(0) 
+          
+        if str.lower(str(seti[4])) == "fast":
+            self.Ps.comboBox_3.setCurrentIndex(0)
+        elif str.lower(str(seti[4])) == "medium":
+            self.Ps.comboBox_3.setCurrentIndex(1)
+        elif str.lower(str(seti[4])) == "slow":
+            self.Ps.comboBox_3.setCurrentIndex(2)
+        else:
+            self.Ps.comboBox_3.setCurrentIndex(1)
+            
+        self.Ps.spinBox_set.setRange(1,999)
+        self.Ps.spinBox_set.setValue(seti[3])
+        setwin.show()
+                
+        def view_defaults():
+            self.Ps.spinBox_set.setValue(10)
+            self.Ps.comboBox.setCurrentIndex(0)
+            self.Ps.comboBox_2.setCurrentIndex(0)
+            self.Ps.comboBox_3.setCurrentIndex(1)
+            
+        self.connect(self.Ps.pushButton,
+                     QtCore.SIGNAL('clicked ()'), 
+                     view_defaults)
+        
+        self.connect(setwin,
+                     QtCore.SIGNAL('accepted ()'), 
+                     self.settings_save)
+
+    def set_qt_syles(self):
+        stylelist = QtGui.QStyleFactory.keys()
+        for style in stylelist:
+            self.action_style = QtGui.QAction(self)
+            self.action_style.setCheckable(True)
+            self.action_style.setText(QtGui.QApplication.translate("MainWindow", style, None, QtGui.QApplication.UnicodeUTF8))
+            self.action_style.setObjectName(style)
+            self.ui.menuQstyle.addAction(self.action_style)
+            if str(style).lower() == str(QtGui.QApplication.style().objectName()).lower():
+                self.action_style.setChecked(True)
+
+        
+
+###TABS###
+    
+    def tabFocus(self,tab):
+        global table_thread
+        global tree_thread
+        global threadtable_thread
+        global contable_thread
+        global disks_thread
+        global lproc
+        global tree_or_table
+
+        
+        if tab != 0:
+            try:
+                if table_thread.isRunning() == True:
+                    table_thread.terminate()
+                    table_thread.wait() 
+                    table_thread = None
+                    tree_or_table = "table"
+                if tree_thread.isRunning() == True:
+                    tree_thread.terminate()
+                    tree_thread.wait() 
+                    tree_thread = None
+                    tree_or_table = "tree"
+            except (AttributeError):
+                pass
+        else:
+            if tree_or_table == "tree":
+                table_thread = TableThread()
+                tree_thread = TreeThread()
+                self.ui.treeWidget.setRootIsDecorated(True)
+                self.ui.treeWidget.setItemsExpandable(True)
+                self.ui.treeWidget.setAnimated(True)
+                tree_thread.start()
+            else:    
+                table_thread = TableThread()
+                tree_thread = TreeThread()
+                self.ui.treeWidget.setRootIsDecorated(False)
+                self.ui.treeWidget.setItemsExpandable(False)
+                self.ui.treeWidget.setAnimated(False)
+                table_thread.start()
+            
+            
+        if tab != 2:
+            try:
+                if disks_thread.isRunning() == True:
+                    disks_thread.terminate()
+                    disks_thread.wait() 
+                    disks_thread = None
+            except (AttributeError):
+                pass
+        else:
+            disks_thread = TableDisksThread()
+            self.ui.treeWidget_50.clear()
+            self.ui.progressBar.setValue(0)
+            disks_thread.start()
+            global item_change_50
+            item_change_50 = True
+            self.on_treeWidget_50_itemClicked(0)
+
+        
+        if tab != 3:
+            try:
+                if contable_thread.isRunning() == True:
+                    contable_thread.terminate()
+                    contable_thread.wait() 
+                    contable_thread = None
+            except (AttributeError):
+                pass
+        else:
+            contable_thread = TableConnectionsThread()
+            self.ui.treeWidget_10.clear()
+            self.ui.treeWidget_11.clear()
+            contable_thread.start()
+            global item_change_11
+            item_change_11 = True
+            self.on_treeWidget_11_itemClicked()
+            
+        if tab == 4:    
+            try:
+                proc_details_pid = int(self.ui.treeWidget.selectedItems()[0].text(1))
+                proc_details_name = str(self.ui.treeWidget.selectedItems()[0].text(0))
+                lproc = psutil.Process(proc_details_pid)
+            except (IndexError, NoSuchProcess, AccessDenied):
+                if self.ui.treeWidget_3.isHidden() == False:
+                    self.ui.treeWidget_3.setHidden(True)
+                    self.ui.treeWidget_4.setHidden(True)
+                    self.ui.treeWidget_5.setHidden(True)
+                    self.ui.treeWidget_6.setHidden(True)
+                QtGui.QMessageBox.information(self,"Info (Psymon)",QtGui.QApplication.translate("MainWindow",
+                                                                                "Please select a process first.", 
+                                                                                None, QtGui.QApplication.UnicodeUTF8))
+                self.ui.tabWidget.setCurrentIndex(0)
+            
+            try:
+                __builtin__.procdetailspid = proc_details_pid
+            except (UnboundLocalError):
+                pass
+            else:
+                try:
+                    lproc.pid
+                except (NoSuchProcess, NameError, AccessDenied):
+                    global proc_stop_exists,_proc_stop_exists
+                    proc_stop_exists = True
+                    _proc_stop_exists = "<b>Proc: </b>"+proc_details_name+","+str(proc_details_pid)
+                    self.ui.tabWidget.setCurrentIndex(0)
+                else:
+                    self.ui.label = QtGui.QLabel(self.ui.tab_2)
+                    self.ui.label.setText(QtGui.QApplication.translate("MainWindow","<b>Process: </b>", 
+                                                            None, QtGui.QApplication.UnicodeUTF8)+proc_details_name)
+                    self.ui.gridLayout.addWidget(self.ui.label, 0, 1, 1, 1)
+                    self.ui.plot4 = Qwt.QwtPlot()
+                    self.ui.plotter4 = proc_details_plotter.DetailPlot(self.ui.plot4)
+                    self.ui.gridLayout.addWidget(self.ui.plotter4, 2, 0, 1, 5)
+                    threadtable_thread = TableThreadThread()
+                    threadtable_thread.start()
+        
+        else:
+            if self.ui.treeWidget_3.isHidden() == True:
+                self.ui.treeWidget_3.setHidden(False)
+                self.ui.treeWidget_4.setHidden(False)
+                self.ui.treeWidget_5.setHidden(False)
+                self.ui.treeWidget_6.setHidden(False)
+            try:
+                self.ui.gridLayout.removeWidget(self.ui.label)
+                self.ui.gridLayout.removeWidget(self.ui.plotter4)
+                self.ui.plotter4.deleteLater()
+                self.ui.label.deleteLater()
+                self.ui.plot4 = None
+                threadtable_thread.terminate()
+                threadtable_thread.wait()
+                threadtable_thread= None
+                threadtable_thread = TableThreadThread()
+                self.ui.treeWidget_3.clear()
+                self.ui.treeWidget_4.clear()
+                self.ui.treeWidget_5.clear()
+                self.ui.treeWidget_6.clear()
+            except (AttributeError,RuntimeError):
+                pass
+
+
+###PROCESS DETAILED INFO TAB###
+    def threadsTable(self,lproc):
+        today_day = datetime.date.today()
+        accessdenied = QtGui.QApplication.translate("MainWindow","AccessDenied", 
+                                                            None, QtGui.QApplication.UnicodeUTF8)
+        zero_accessdenied = QtGui.QApplication.translate("MainWindow","Zero or AccessDenied", 
+                                                            None, QtGui.QApplication.UnicodeUTF8)
+        if self.ui.treeWidget_5.topLevelItemCount() > 0:
+            self.ui.treeWidget_5.clear()
+        _item_tree5 = QTreeWidgetItem()
+        self.ui.treeWidget_5.addTopLevelItem(_item_tree5)
+        while True:
+            try:
+                _lproc_ids = [_lproc.id for _lproc in lproc.get_threads()]
+                for _thread in lproc.get_threads():
+                    _thread_id = str(_thread.id)
+                    _thread_user_time = _thread.user_time
+                    _thread_system_time = _thread.system_time
+                    try:
+                        _old_item = self.ui.treeWidget_3.findItems(_thread_id,Qt.MatchExactly,0)[0]
+                    except (IndexError):
+                        _item_tree = QTreeWidgetItem()
+                        _item_tree.setData(0,Qt.DisplayRole, _thread_id)
+                        _item_tree.setData(1,Qt.DisplayRole, _thread_user_time)
+                        _item_tree.setData(2,Qt.DisplayRole, _thread_system_time)
+                        self.ui.treeWidget_3.addTopLevelItem(_item_tree)
+                    else:
+                        _old_item.setData(1,Qt.DisplayRole, _thread_user_time)
+                        _old_item.setData(2,Qt.DisplayRole, _thread_system_time)
+            
+                if self.ui.treeWidget_3.topLevelItemCount() > 0 :
+                    for _list_item in self.ui.treeWidget_3.findItems("*",
+                                    Qt.MatchWildcard|Qt.MatchRecursive,0):
+                        if int(_list_item.text(0)) not in _lproc_ids:
+                            _list_item_index = self.ui.treeWidget_3.indexOfTopLevelItem(_list_item)
+                            self.ui.treeWidget_3.takeTopLevelItem(_list_item_index)
+                time.sleep(0.1)
+                self.ui.treeWidget_3.sortByColumn(0)
+            except (AttributeError, AccessDenied, NoSuchProcess):
+                pass
+
+            
+            try:
+                for _lproc_net_tcp4 in lproc.get_connections(kind='tcp4'):
+                    _lproc_net_tcp4_l = _lproc_net_tcp4.local_address
+                    _lproc_net_tcp4_r = _lproc_net_tcp4.remote_address
+                    _lproc_net_tcp4_s = _lproc_net_tcp4.status
+                    try:
+                        _old_item = self.ui.treeWidget_4.findItems(str(_lproc_net_tcp4_l),Qt.MatchExactly,1)[0]
+                    except (IndexError):
+                        _item_tree = QTreeWidgetItem()
+                        _item_tree.setText(0, "TCP / IPv4")
+                        _item_tree.setText(1, str(_lproc_net_tcp4_l))
+                        _item_tree.setText(2, str(_lproc_net_tcp4_r))
+                        _item_tree.setText(3, str(_lproc_net_tcp4_s))
+                        self.ui.treeWidget_4.addTopLevelItem(_item_tree)
+                    else:
+                        _old_item.setText(3, str(_lproc_net_tcp4_s))
+                time.sleep(0.1)
+            
+                for _lproc_net_udp4 in lproc.get_connections(kind='udp4'):
+                    _lproc_net_udp4_l = _lproc_net_udp4.local_address
+                    _lproc_net_udp4_r = _lproc_net_udp4.remote_address
+                    _lproc_net_udp4_s = _lproc_net_udp4.status
+                    try:
+                        _old_item = self.ui.treeWidget_4.findItems(str(_lproc_net_udp4_l),Qt.MatchExactly,1)[0]
+                    except (IndexError):
+                        _item_tree = QTreeWidgetItem()
+                        _item_tree.setText(0, "UDP / IPv4")
+                        _item_tree.setText(1, str(_lproc_net_udp4_l))
+                        _item_tree.setText(2, str(_lproc_net_udp4_r))
+                        _item_tree.setText(3, str(_lproc_net_udp4_s))
+                        self.ui.treeWidget_4.addTopLevelItem(_item_tree)
+                    else:
+                        _old_item.setText(3, str(_lproc_net_udp4_s))
+                time.sleep(0.1)    
+            
+                for _lproc_net_tcp6 in lproc.get_connections(kind='tcp6'):
+                    _lproc_net_tcp6_l = _lproc_net_tcp6.local_address
+                    _lproc_net_tcp6_r = _lproc_net_tcp6.remote_address
+                    _lproc_net_tcp6_s = _lproc_net_tcp6.status
+                    try:
+                        _old_item = self.ui.treeWidget_4.findItems(str(_lproc_net_tcp6_l),Qt.MatchExactly,1)[0]
+                    except (IndexError):
+                        _item_tree = QTreeWidgetItem()
+                        _item_tree.setText(0, "TCP / IPv6")
+                        _item_tree.setText(1, str(_lproc_net_tcp6_l))
+                        _item_tree.setText(2, str(_lproc_net_tcp6_r))
+                        _item_tree.setText(3, str(_lproc_net_tcp6_s))
+                        self.ui.treeWidget_4.addTopLevelItem(_item_tree)
+                    else:
+                        _old_item.setText(3, str(_lproc_net_tcp6_s))
+                time.sleep(0.1)
+            
+                for _lproc_net_udp6 in lproc.get_connections(kind='udp6'):
+                    _lproc_net_udp6_l = _lproc_net_udp6.local_address
+                    _lproc_net_udp6_r = _lproc_net_udp6.remote_address
+                    _lproc_net_udp6_s = _lproc_net_udp6.status
+                    try:
+                        _old_item = self.ui.treeWidget_4.findItems(str(_lproc_net_udp6_l),Qt.MatchExactly,1)[0]
+                    except (IndexError):
+                        _item_tree = QTreeWidgetItem()
+                        _item_tree.setText(0, "UDP / IPv6")
+                        _item_tree.setText(1, str(_lproc_net_udp6_l))
+                        _item_tree.setText(2, str(_lproc_net_udp6_r))
+                        _item_tree.setText(3, str(_lproc_net_udp6_s))
+                        self.ui.treeWidget_4.addTopLevelItem(_item_tree)
+                    else:
+                        _old_item.setText(3, str(_lproc_net_udp6_s))
+                time.sleep(0.1)
+            
+                if self.ui.treeWidget_4.topLevelItemCount() > 0 :
+                    _lproc_net_ls  = [str(_lproc_net.local_address) for _lproc_net in lproc.get_connections()]
+                    for _list_item in self.ui.treeWidget_4.findItems("*",
+                                        Qt.MatchWildcard|Qt.MatchRecursive,0):
+                        if str(_list_item.text(1)) not in _lproc_net_ls:
+                            _list_item_index = self.ui.treeWidget_4.indexOfTopLevelItem(_list_item)
+                            self.ui.treeWidget_4.takeTopLevelItem(_list_item_index)
+            except (AttributeError, AccessDenied, NoSuchProcess):
+                pass
+
+            time.sleep(0.1)
+                
+            try:
+                _parent_name = str(lproc.parent.name)
+                _parent_pid = str(lproc.parent.pid)
+            except (AttributeError, AccessDenied, NoSuchProcess):
+                _parent_name = accessdenied
+                _parent_pid = accessdenied
+            _parent = _parent_name+","+_parent_pid       
+            try:
+                _status = str(lproc.status)
+            except (AttributeError, AccessDenied, NoSuchProcess):
+                _status = accessdenied
+            try:
+                _memory = lproc.get_memory_info()
+                _rss = round(_memory.rss / 1000000.0,1)
+                _vsz = round(_memory.vms / 1000000.0,1)
+            except (AttributeError, AccessDenied, NoSuchProcess):
+                _rss = accessdenied
+                _vsz = accessdenied
+            try:
+                _cputime = time.strftime("%M:%S", time.localtime(sum(lproc.get_cpu_times())))                    
+            except (AttributeError, AccessDenied, NoSuchProcess):
+                _cputime = accessdenied
+            try:
+                _threads = lproc.get_num_threads()
+            except (AttributeError, AccessDenied, NoSuchProcess):
+                _threads = accessdenied
+            try:
+                _read_bytes0 = lproc.get_io_counters()[2]
+                _write_bytes0 = lproc.get_io_counters()[3]
+                time.sleep(1)
+                _read_bytes = lproc.get_io_counters()[2]
+                _write_bytes = lproc.get_io_counters()[3]  
+                _read_bytes_per_sec = round((_read_bytes - _read_bytes0)/1000.0,2)
+                _write_bytes_per_sec = round((_write_bytes - _write_bytes0)/1000.0,2)
+            except (AttributeError, AccessDenied, NoSuchProcess):
+                _read_bytes = accessdenied
+                _write_bytes = accessdenied
+                _read_bytes_per_sec = accessdenied
+                _write_bytes_per_sec = accessdenied
+            try:
+                _working_dir = lproc.getcwd()
+            except(AttributeError, AccessDenied, NoSuchProcess):
+                _working_dir = accessdenied
+            try:
+                _username = lproc.username
+            except (AttributeError, AccessDenied, NoSuchProcess):
+                _username = accessdenied
+            try:
+                _command = str(lproc.cmdline)
+                if os.name == 'nt' and '\\' in _username:
+                    _username = _username.split('\\')[1]
+            except (AttributeError, AccessDenied, NoSuchProcess):
+                _command = accessdenied
+            try:
+                _start = datetime.datetime.fromtimestamp(lproc.create_time)
+            except (AttributeError, AccessDenied, NoSuchProcess):
+                _start = accessdenied
+            else:
+                if _start.date() == today_day:
+                    _start = _fromUtf8(_start.strftime("%H:%M"))
+                else:
+                    _start = _fromUtf8(_start.strftime("%b%d"))
+            try:
+                _niceness = lproc.nice
+            except (AttributeError, AccessDenied, NoSuchProcess):
+                _niceness = accessdenied
+            _connections = self.ui.treeWidget_4.topLevelItemCount()
+            
+            if _connections == 0:
+                _connections = zero_accessdenied
+            
+            _openedfiles = self.ui.treeWidget_6.topLevelItemCount()
+            if _openedfiles == 0:
+                _openedfiles = zero_accessdenied
+                
+            try:
+                _pid = lproc.pid
+                lproc.name
+            except(NoSuchProcess, AttributeError, AccessDenied):
+                global proc_stop_exists,_proc_stop_exists
+                proc_stop_exists = True
+                _proc_stop_exists = self.ui.label.text()+","+str(_pid)
+                self.ui.tabWidget.setCurrentIndex(0)
+                
+            _item_tree5.setData(0,Qt.DisplayRole,_pid)
+            _item_tree5.setData(1,Qt.DisplayRole,_username)
+            _item_tree5.setData(2,Qt.DisplayRole,_status)
+            _item_tree5.setData(3,Qt.DisplayRole,_niceness)
+            _item_tree5.setData(4,Qt.DisplayRole,_vsz)
+            _item_tree5.setData(5,Qt.DisplayRole,_rss)
+            _item_tree5.setData(6,Qt.DisplayRole,_start)
+            _item_tree5.setData(7,Qt.DisplayRole,_cputime)
+            _item_tree5.setData(8,Qt.DisplayRole,_threads)
+            _item_tree5.setData(9,Qt.DisplayRole,_connections)
+            _item_tree5.setData(10,Qt.DisplayRole,_openedfiles)
+            _item_tree5.setData(11,Qt.DisplayRole,_read_bytes)
+            _item_tree5.setData(12,Qt.DisplayRole,_write_bytes)
+            _item_tree5.setData(13,Qt.DisplayRole,_read_bytes_per_sec)
+            _item_tree5.setData(14,Qt.DisplayRole,_write_bytes_per_sec)
+            _item_tree5.setData(15,Qt.DisplayRole,_parent)
+            _item_tree5.setData(16,Qt.DisplayRole,_working_dir)
+            _item_tree5.setData(17,Qt.DisplayRole,_command)
+
+            time.sleep(0.2)
+            
+            try:
+                _loproc_fds = [_loproc.fd for _loproc in lproc.get_open_files()]
+                for _of in lproc.get_open_files():
+                    _o_fd = str(_of.fd)
+                    _o_fp = str(_of.path)
+                    try:
+                        _old_item = self.ui.treeWidget_6.findItems(_o_fd,Qt.MatchExactly,0)[0]
+                    except (IndexError):
+                        _item_tree = QTreeWidgetItem()
+                        _item_tree.setData(0,Qt.DisplayRole, _o_fd)
+                        _item_tree.setData(1,Qt.DisplayRole, _o_fp)
+                        self.ui.treeWidget_6.addTopLevelItem(_item_tree)
+                    else:
+                        pass
+            
+                if self.ui.treeWidget_6.topLevelItemCount() > 0 :
+                    for _list_item in self.ui.treeWidget_6.findItems("*",
+                                        Qt.MatchWildcard|Qt.MatchRecursive,0):
+                        if int(_list_item.text(0)) not in _loproc_fds:
+                            _list_item_index = self.ui.treeWidget_6.indexOfTopLevelItem(_list_item)
+                            self.ui.treeWidget_6.takeTopLevelItem(_list_item_index)
+                    time.sleep(0.2)
+            except (AttributeError, AccessDenied, NoSuchProcess):
+                    pass
+
+
+
+###STATUSBAR### 
+    def system_info(self):
+        while True:
+            _proc_list = [p for p in psutil.process_iter()]
+            _total_procs =QtGui.QApplication.translate("MainWindow","Procs:", 
+                            None, QtGui.QApplication.UnicodeUTF8)+str(len(_proc_list))     
+            _cpu = QtGui.QApplication.translate("MainWindow","Cpu:", 
+                            None, QtGui.QApplication.UnicodeUTF8)+str(psutil.cpu_percent(interval=1, percpu=False))+"%"
+            _mem = psutil.phymem_usage()
+            _vmem = psutil.virtmem_usage()
+            _mem_inf=QtGui.QApplication.translate("MainWindow","Mem:", 
+                            None, QtGui.QApplication.UnicodeUTF8)+str(_mem.percent)+"%"
+            _vmem_inf=QtGui.QApplication.translate("MainWindow","Swap:", 
+                            None, QtGui.QApplication.UnicodeUTF8)+str(_vmem.percent)+"%"                
+            _uptime = QtGui.QApplication.translate("MainWindow","Up:", 
+                            None, QtGui.QApplication.UnicodeUTF8)+_fromUtf8(str(datetime.timedelta(
+                    seconds=int(time.time() - psutil.BOOT_TIME))))
+            _in_a = psutil.network_io_counters(pernic=False).bytes_recv
+            _out_a = psutil.network_io_counters(pernic=False).bytes_sent
+            _read_a = psutil.disk_io_counters(perdisk=False).read_bytes
+            _write_a = psutil.disk_io_counters(perdisk=False).write_bytes
+            time.sleep(0.95)
+            _in_b = psutil.network_io_counters(pernic=False).bytes_recv
+            _out_b = psutil.network_io_counters(pernic=False).bytes_sent
+            _read_b = psutil.disk_io_counters(perdisk=False).read_bytes
+            _write_b = psutil.disk_io_counters(perdisk=False).write_bytes
+            _netdata = QtGui.QApplication.translate("MainWindow","Net:", 
+                            None, QtGui.QApplication.UnicodeUTF8)+u"\u2193"+str((_in_b - _in_a)/1000
+                    )+u"KB/s \u2219\u2191"+str((_out_b - _out_a)/1000)+"KB/s"
+        
+            _diskdata = QtGui.QApplication.translate("MainWindow","Disk:", 
+                            None, QtGui.QApplication.UnicodeUTF8)+u"\u2193"+str((_write_b - _write_a
+                    )/1000)+u"KB/s \u2219\u2191"+str((_read_b - _read_a)/1000)+"KB/s"
+               
+             
+            self.ui.statuslabel.setText(_total_procs+" | "+_cpu+" | "+_mem_inf+" | "+
+                            _vmem_inf+" | "+_netdata+" | "+_diskdata+" | "+_uptime)
+        
+
+###NETWORK INFO TAB###
+
+    def clear_old_proc_connection(self,_proc_list,_proc):
+
+        _proc_list.remove(_proc)
+        time.sleep(0.5)       
+        for list_item in self.ui.treeWidget_10.findItems("*",
+                        Qt.MatchWildcard|Qt.MatchRecursive,0):
+            
+            if psutil.pid_exists(int(list_item.text(1))) == False:
+                
+                    list_item_index = self.ui.treeWidget_10.indexOfTopLevelItem(list_item)                  
+                    self.ui.treeWidget.takeTopLevelItem(list_item_index)
+        
+        return _proc_list
+
+    def connections_table(self):
+        firstloop = True
+        proc_list = [p for p in psutil.process_iter()]
+        selfprocid =  psutil.Process(os.getpid()).pid
+        while True:
+            nics = []
+            for nic in psutil.network_io_counters(pernic=True):
+                _net_io_counters = psutil.network_io_counters(pernic=True)
+                nics = nics + [nic]
+                try:
+                    try:
+                        _nic_name = nic
+                        _sent_bytes = _net_io_counters[nic].bytes_sent
+                        _recv_bytes = _net_io_counters[nic].bytes_recv
+                        _sent_packets = _net_io_counters[nic].packets_sent
+                        _recv_packets = _net_io_counters[nic].packets_recv
+                        old_item_nic = self.ui.treeWidget_11.findItems(_nic_name,Qt.MatchExactly,0)[0]
+                    except (IndexError):
+                        item_tree = QTreeWidgetItem()
+                        item_tree.setText(0,_nic_name)
+                        item_tree.setText(1,str(_sent_bytes))
+                        item_tree.setText(2,str(_recv_bytes))
+                        item_tree.setText(3,str(_sent_packets))
+                        item_tree.setText(4,str(_recv_packets))
+                        self.ui.treeWidget_11.addTopLevelItem(item_tree)
+                    else:
+                        old_item_nic.setText(1,str(_sent_bytes))
+                        old_item_nic.setText(2,str(_recv_bytes))
+                        old_item_nic.setText(3,str(_sent_packets))
+                        old_item_nic.setText(4,str(_recv_packets))
+                except (AccessDenied,IndexError):
+                    pass
+            
+            if self.ui.treeWidget_11.topLevelItemCount() > 0 :
+                for _list_item in self.ui.treeWidget_11.findItems("*",Qt.MatchWildcard|Qt.MatchRecursive,0):
+                    str_list_item_nic = _list_item.text(0)
+                    if str_list_item_nic not in nics:
+                        _list_item_index = self.ui.treeWidget_11.indexOfTopLevelItem(_list_item)
+                        self.ui.treeWidget_11.takeTopLevelItem(_list_item_index)
+            time.sleep(1)
+            
+            total_connections = []
+            for proc in proc_list:
+                try:
+                    _pid = proc.pid
+                    _name = proc.name
+                except (AccessDenied,NoSuchProcess):
+                    proc_list = self.clear_old_proc_connection(proc_list,proc)
+                else:
+                    try:
+                        str_pid = str(_pid)
+                        old_item=self.ui.treeWidget_10.findItems(str_pid,Qt.MatchExactly,1)[0]
+                    except (IndexError):
+                        try:
+                            _connections = proc.get_connections()                  
+                        except (AccessDenied,NoSuchProcess):
+                            pass
+                        else:
+                            total_connections = total_connections + _connections
+                            if selfprocid == proc.pid:
+                                proc_list = self.clear_old_proc_connection(proc_list,proc)
+                            else:
+                                for _connection in _connections:
+                                    time.sleep(0.1)
+                                    _local_connection = _connection.local_address
+                                    _remote_connection = _connection.remote_address
+                                    _status_connection = _connection.status
+                                    item_tree = QTreeWidgetItem()
+                                    item_tree.setText(0,str(_name))
+                                    item_tree.setText(1,str(_pid))
+                                    item_tree.setText(2,str(_local_connection))
+                                    item_tree.setText(3,str(_remote_connection))
+                                    item_tree.setText(4,str(_status_connection))
+                                    self.ui.treeWidget_10.addTopLevelItem(item_tree)
+                    else:
+                        try:
+                            _connections = proc.get_connections()                  
+                        except (AccessDenied,NoSuchProcess):
+                            pass
+                        else:
+                            total_connections = total_connections + _connections
+                            for _connection in _connections:
+                                try:
+                                    str_con = str(_connection.local_address)
+                                    old_item_con=self.ui.treeWidget_10.findItems(str_con,Qt.MatchExactly,2)[0]
+                                except (IndexError):
+                                    old_item_pid = old_item.text(1)
+                                    old_item_name = old_item.text(0)
+                                    _local_connection_o = _connection.local_address
+                                    _remote_connection_o = _connection.remote_address
+                                    _status_connection_o = _connection.status
+                                    item_tree = QTreeWidgetItem()
+                                    item_tree.setText(0,str(old_item_name))
+                                    item_tree.setText(1,str(old_item_pid))
+                                    item_tree.setText(2,str(_local_connection_o))
+                                    item_tree.setText(3,str(_remote_connection_o))
+                                    item_tree.setText(4,str(_status_connection_o))
+                                    self.ui.treeWidget_10.addTopLevelItem(item_tree)
+                                else:
+                                    _status_connection_o = _connection.status                 
+                                    old_item_con.setText(4,str(_status_connection_o))
+              
+            if self.ui.treeWidget_10.topLevelItemCount() > 0 :
+                _lproc_net_ls  = [str(_lproc_net.local_address) for _lproc_net in total_connections]
+                for _list_item in self.ui.treeWidget_10.findItems("*",Qt.MatchWildcard|Qt.MatchRecursive,0):
+                    time.sleep(0.1)
+                    str_list_item_text2 = str(_list_item.text(2))
+                    if str_list_item_text2 not in _lproc_net_ls:
+                        _list_item_index = self.ui.treeWidget_10.indexOfTopLevelItem(_list_item)
+                        self.ui.treeWidget_10.takeTopLevelItem(_list_item_index)                               
+            if firstloop == True:
+                firstloop = False
+            else:
+                time.sleep(1)
+
+            proc_list = self.add_new_proc(proc_list)
+
+
+###DISK INFO TAB###
+
+    def disk_info_table(self):
+        while True:
+            _total_partitions = []
+            for _disk in psutil.disk_partitions(all=False): 
+                try:
+                    _partition = _disk[0]
+                    _mountpoint = _disk[1]
+                    _fstype = _disk[2]
+                    _total = round(psutil.disk_usage(_mountpoint)[0]/1000000.0,1)
+                    _used = round(psutil.disk_usage(_mountpoint)[1]/1000000.0,1)
+                    _free = round(psutil.disk_usage(_mountpoint)[2]/1000000.0,1)
+                    _percent = psutil.disk_usage(_mountpoint)[3]
+                except (AccessDenied):
+                    pass
+                else:
+                    _total_partitions = _total_partitions + [_partition]
+                    try:
+                        old_item=self.ui.treeWidget_50.findItems(_partition,Qt.MatchExactly,0)[0]
+                    except (IndexError):
+                        item_tree = QTreeWidgetItem()
+                        item_tree.setText(0,_partition)
+                        item_tree.setText(1,_mountpoint)
+                        item_tree.setText(2,_fstype)
+                        item_tree.setText(3,str(_total))
+                        item_tree.setText(4,str(_used))
+                        item_tree.setText(5,str(_free))
+                        item_tree.setData(6,Qt.DisplayRole,_percent)
+                        self.ui.treeWidget_50.addTopLevelItem(item_tree)
+                    else:                      
+                        old_item.setText(1,_mountpoint)
+                        old_item.setText(2,_fstype)
+                        old_item.setText(3,str(_total))
+                        old_item.setText(4,str(_used))
+                        old_item.setText(5,str(_free))
+                        old_item.setData(6,Qt.DisplayRole,_percent)
+
+            if self.ui.treeWidget_50.topLevelItemCount() > 0 :
+                for _list_item in self.ui.treeWidget_50.findItems("*",Qt.MatchWildcard|Qt.MatchRecursive,0):
+                    str_list_item_text = _list_item.text(0)
+                    if str_list_item_text not in _total_partitions:
+                        _list_item_index = self.ui.treeWidget_50.indexOfTopLevelItem(_list_item)
+                        self.ui.treeWidget_50.takeTopLevelItem(_list_item_index)
+            
+            time.sleep(1)
+
+
+###PROCESS TABLE TAB###
+    
+    def customSortByColumn(self,column):
+            order = self.ui.treeWidget.header().sortIndicatorOrder()
+            time.sleep(0.5)
+            self.ui.treeWidget.sortItems(column, order)
+
+    
+    def clear_old_proc(self,_proc_list,_proc):
+        
+        _proc_list.remove(_proc)
+        time.sleep(0.5)       
+        for list_item in self.ui.treeWidget.findItems("*",
+                        Qt.MatchWildcard|Qt.MatchRecursive,0):
+            
+            if psutil.pid_exists(int(list_item.text(1))) == False:
+                
+                if list_item.parent() == None:
+                    list_item_index = self.ui.treeWidget.indexOfTopLevelItem(list_item)                  
+                    self.ui.treeWidget.takeTopLevelItem(list_item_index)
+                else:
+                    list_item_index = list_item.parent().indexOfChild(list_item)
+                    list_item.parent().takeChild(list_item_index)
+        
+        return _proc_list
+
+    def add_new_proc(self,_proc_list):
+
+        _selfprocid = psutil.Process(os.getpid()).pid
+        cpids = [p.pid for p in _proc_list]
+        for p in psutil.process_iter():
+            if p.pid not in cpids:
+                if _selfprocid != p.pid:
+                    _proc_list.append(p)
+                    _proc_list.reverse()
+        return _proc_list
+
+    def new_root_treeitem(self,_name,_pid,_username,_niceness,
+                          _parent_pid,_parent_name,_command,_start):
+
+        item_tree = QTreeWidgetItem()
+        item_tree.setText(0,str(_name))
+        item_tree.setText(1,str(_pid))
+        item_tree.setText(2,str(_username))
+        item_tree.setData(3,Qt.DisplayRole, "")
+        item_tree.setData(4,Qt.DisplayRole, _niceness)
+        item_tree.setData(5,Qt.DisplayRole, "")
+        item_tree.setData(6,Qt.DisplayRole, "")
+        item_tree.setData(7,Qt.DisplayRole, "")
+        item_tree.setData(8,Qt.DisplayRole, "")
+        item_tree.setData(9,Qt.DisplayRole, _start)
+        item_tree.setData(10,Qt.DisplayRole, "")
+        item_tree.setData(11,Qt.DisplayRole, "")
+        item_tree.setData(12,Qt.DisplayRole, "")
+        item_tree.setData(13,Qt.DisplayRole, "")
+        item_tree.setText(14, _parent_name+" , "+ str(_parent_pid))
+        item_tree.setText(15,"")
+        if str(_command) == "[]":
+            item_tree.setText(16,"")
+        else:
+            item_tree.setText(16,str(_command))
+        return item_tree
+  
+    def old_treeitem(self,old_item,_vsz,_rss,_cputime,_threads,_read_bytes,
+                _write_bytes,_memory_percent,_cpu_percent,_status,_working_dir):
+        
+        if old_item.text(7) != _vsz and _vsz != 0:
+            old_item.setData(7,Qt.DisplayRole, _vsz)
+        if old_item.text(8) != _rss and _rss !=0:
+            old_item.setData(8,Qt.DisplayRole, _rss)
+        if old_item.text(10) != _cputime:
+            old_item.setData(10,Qt.DisplayRole, _cputime)
+        if old_item.text(11) != _cputime:
+            old_item.setData(11,Qt.DisplayRole, _threads)
+        if old_item.text(12) != _read_bytes and _read_bytes != 0:
+            old_item.setData(12,Qt.DisplayRole, _read_bytes)
+        if old_item.text(13) != _write_bytes and _write_bytes != 0:
+            old_item.setData(13,Qt.DisplayRole, _write_bytes)
+        if _memory_percent != 0 and old_item.text(6) != _memory_percent:
+            old_item.setData(6,Qt.DisplayRole, _memory_percent)
+        if _cpu_percent != 0 and old_item.text(5) != _cpu_percent:
+            old_item.setData(5,Qt.DisplayRole,_cpu_percent)
+        if old_item.text(3) != _status:
+            old_item.setData(3,Qt.DisplayRole,_status)
+        if old_item.text(15) != _working_dir:
+            old_item.setText(15,_working_dir)     
+
+    def realtime_values(self,proc):
+        _pid = proc.pid
+        _name = proc.name
+        try:
+            _status = str(proc.status)
+        except (AttributeError, AccessDenied, NoSuchProcess):
+            _status =""
+        try:
+            _cpu_percent = round(proc.get_cpu_percent(interval=0.0),0)
+        except (AttributeError, AccessDenied, NoSuchProcess):
+            _cpu_percent = ""
+        else:
+            if _cpu_percent == 0:
+                _cpu_percent = ""
+        try:
+            _memory_percent = round(proc.get_memory_percent(),1)
+        except (AttributeError, AccessDenied, NoSuchProcess):
+            _memory_percent = ""
+        else:
+            if _memory_percent == 0:
+                _memory_percent = ""
+        try:
+            _memory = proc.get_memory_info()
+        except (AttributeError, AccessDenied, NoSuchProcess):
+            _memory = 0
+            _rss = ""
+            _vsz = ""
+        else:
+            _rss = round(_memory.rss / 1000000.0,1)
+            _vsz = round(_memory.vms / 1000000.0,1)
+            if _rss == 0:
+                _rss = ""
+            if _vsz == 0:
+                _vsz = ""
+        try:
+            _cputime = time.strftime("%M:%S", time.localtime(sum(proc.get_cpu_times())))                    
+        except (AttributeError, AccessDenied, NoSuchProcess):
+            _cputime = ""
+        try:
+            _threads = proc.get_num_threads()
+        except (AttributeError, AccessDenied, NoSuchProcess):
+            _threads = ""
+        try:
+            _read_bytes = proc.get_io_counters()[2]
+            _write_bytes = proc.get_io_counters()[3]
+        except (AttributeError,AccessDenied, NoSuchProcess):
+            _read_bytes = ""
+            _write_bytes = ""
+        try:
+            _working_dir = proc.getcwd()
+        except(AttributeError,AccessDenied, NoSuchProcess):
+            _working_dir = QtGui.QApplication.translate("MainWindow","AccessDenied", 
+                            None, QtGui.QApplication.UnicodeUTF8)
+        
+        return [_status,_cpu_percent,_pid,_memory_percent,
+                _rss,_vsz,_cputime,_threads,_read_bytes,_write_bytes,_working_dir]                   
+
+    def stabletime_values(self,proc,today_day):
+        accesdenied = QtGui.QApplication.translate("MainWindow","AccessDenied", 
+                            None, QtGui.QApplication.UnicodeUTF8)
+        
+        try:
+            _name = proc.name
+        except (AttributeError, AccessDenied, NoSuchProcess):
+            _name = accesdenied
+        try:
+            _username = proc.username
+        except (AttributeError, AccessDenied, NoSuchProcess):
+            _username = ""
+        try:
+            _command = proc.cmdline
+        except (AttributeError, AccessDenied, NoSuchProcess):
+            _command = ""
+        else:
+            if os.name == 'nt' and '\\' in _username:
+                _username = _username.split('\\')[1]
+        try:
+            _parent_name = proc.parent.name
+            _parent_pid = proc.parent.pid
+        except (AttributeError, AccessDenied, NoSuchProcess):
+            _parent_name = accesdenied
+            _parent_pid = "00000"
+        
+        try:                        
+            _start = datetime.datetime.fromtimestamp(proc.create_time)
+        except (AttributeError, AccessDenied, NoSuchProcess):
+            _start = ""
+        else:
+            if _start.date() == today_day:
+                _start = _fromUtf8(_start.strftime("%H:%M"))
+            else:
+                _start = _fromUtf8(_start.strftime("%b%d"))
+        try:
+            _niceness = proc.nice
+        except (AttributeError, AccessDenied, NoSuchProcess):
+            _niceness = ""
+        
+        return [_name,_username,_command,
+                _parent_name,_parent_pid,_start,_niceness]
+
+    def tree_style(self):
+        global TABLE_INTERVAL
+        proc_list = [p for p in psutil.process_iter()]
+        selfprocid =  psutil.Process(os.getpid()).pid
+        while True:
+            today_day = datetime.date.today()                       
+            for proc in proc_list:
+                try:
+                    rtvals = self.realtime_values(proc)
+                except (AccessDenied,NoSuchProcess):
+                    proc_list = self.clear_old_proc(proc_list,proc)
+                else:                    
+                    try:
+                        str_pid = str(rtvals[2])
+                        old_item=self.ui.treeWidget.findItems(str_pid,
+                                    Qt.MatchRecursive|Qt.MatchExactly,1)[0]
+                    except (IndexError):
+                        try:
+                            stvals = self.stabletime_values(proc,today_day)                    
+                        except (AccessDenied,NoSuchProcess):
+                            proc_list = self.clear_old_proc(proc_list,proc)
+                        else:
+                            if selfprocid == proc.pid:
+                                pass
+                            else:
+                                item_tree=self.new_root_treeitem(stvals[0],rtvals[2],stvals[1],
+                                                stvals[6],stvals[4],stvals[3],stvals[2],stvals[5])                          
+                                if self.ui.treeWidget.topLevelItemCount() > 0 :                   
+                                    for list_item in self.ui.treeWidget.findItems("*",
+                                                Qt.MatchWildcard|Qt.MatchRecursive,0):
+                                        if int(list_item.text(1)) == int(stvals[4]):                                          
+                                            list_item.addChild(item_tree)
+                                        elif int(stvals[4]) == 0:                
+                                            self.ui.treeWidget.addTopLevelItem(item_tree)
+                                else:
+                                    self.ui.treeWidget.addTopLevelItem(item_tree)
+                    else:                        
+                        self.old_treeitem(old_item,rtvals[5],rtvals[4],rtvals[6],rtvals[7],
+                                          rtvals[8],rtvals[9],rtvals[3],rtvals[1],rtvals[0],rtvals[10])           
+                if selfprocid == proc.pid:
+                    proc_list = self.clear_old_proc(proc_list,proc)
+            time.sleep(TABLE_INTERVAL) 
+            self.ui.treeWidget.sortItems(self.ui.treeWidget.header().sortIndicatorSection(),
+                                         self.ui.treeWidget.header().sortIndicatorOrder())   
+            proc_list = self.add_new_proc(proc_list)
+  
+    def table_style (self):
+        global TABLE_INTERVAL
+        firstloop = True
+        proc_list = [p for p in psutil.process_iter()]
+        selfprocid =  psutil.Process(os.getpid()).pid
+        while True:
+            today_day = datetime.date.today()
+            for proc in proc_list:
+                try:
+                    rtvals = self.realtime_values(proc)
+                except (AccessDenied,NoSuchProcess):
+                    proc_list = self.clear_old_proc(proc_list,proc)
+                else:
+                    try:
+                        str_pid = str(rtvals[2])
+                        old_item=self.ui.treeWidget.findItems(str_pid,Qt.MatchExactly,1)[0]
+                    except (IndexError):
+                        try:
+                            stvals = self.stabletime_values(proc,today_day)                    
+                        except (AccessDenied,NoSuchProcess):
+                            proc_list = self.clear_old_proc(proc_list,proc)
+                        else:
+                            if selfprocid == proc.pid:
+                                proc_list = self.clear_old_proc(proc_list,proc)
+                            else:
+                                item_tree=self.new_root_treeitem(stvals[0],rtvals[2],stvals[1],
+                                                stvals[6],stvals[4],stvals[3],stvals[2],stvals[5])                          
+                                self.ui.treeWidget.addTopLevelItem(item_tree)
+                    else:                      
+                        self.old_treeitem(old_item,rtvals[5],rtvals[4],rtvals[6],rtvals[7],
+                                          rtvals[8],rtvals[9],rtvals[3],rtvals[1],rtvals[0],rtvals[10])                      
+            if firstloop == True:
+                firstloop = False
+            else:
+                time.sleep(TABLE_INTERVAL)
+                
+            self.ui.treeWidget.sortItems(self.ui.treeWidget.header().sortIndicatorSection(), 
+                                         self.ui.treeWidget.header().sortIndicatorOrder())   
+            proc_list = self.add_new_proc(proc_list)
+
+###THREADS###
+
+class TableThread(QThread):
+
+    def __init__(self, parent = None):
+
+        QThread.__init__(self, parent)
+    
+    def run(self):
+
+        win.table_style()
+
+
+class TreeThread(QThread):
+
+    def __init__(self, parent = None):
+
+        QThread.__init__(self, parent)
+    
+    def run(self):
+
+        win.tree_style()
+ 
+
+class StatusbarThread(QThread):
+
+    def __init__(self, parent = None):
+
+        QThread.__init__(self, parent)
+    
+    def run(self):
+
+        win.system_info()
+
+
+class TableThreadThread(QThread):
+
+    def __init__(self, parent = None):
+
+        QThread.__init__(self, parent)
+    
+    def run(self):
+        
+        global lproc
+        win.threadsTable(lproc)
+
+
+class TableConnectionsThread(QThread):
+
+    def __init__(self, parent = None):
+
+        QThread.__init__(self, parent)
+    
+    def run(self):
+
+        win.connections_table()
+
+
+class TableDisksThread(QThread):
+
+    def __init__(self, parent = None):
+
+        QThread.__init__(self, parent)
+    
+    def run(self):
+
+        win.disk_info_table()
+
+
+###RUN###
+                    
+if __name__ == "__main__":
+    app=QApplication([])
+    psymon_init()
+    
+    win=MainWin()
+    win.show()
+    win.set_qt_syles()
+    win.init_settings()
+    
+    global table_thread
+    global tree_thread
+    global threadtable_thread
+    global contable_thread
+    global disks_thread
+    
+    table_thread = TableThread()
+    tree_thread = TreeThread()
+    statusbar_thread = StatusbarThread()
+    threadtable_thread = TableThreadThread()
+    contable_thread = TableConnectionsThread()
+    disks_thread = TableDisksThread()
+    table_thread.start()
+    statusbar_thread.start()
+    sys.exit(app.exec_())
+
