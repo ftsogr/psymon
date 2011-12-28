@@ -17,8 +17,8 @@ Then send the generated .qm file at "kotsifi at gmail.com" with subject "Psymon-
 
 ===Translations===
 || *Language* || *Translator* || *.qm file* ||
-|| English || Dimitris Diamantis (kotsifi at gmail.com) || psymon_tr_en.qm ||
-|| Greek || Dimitris Diamantis (kotsifi at gmail.com) || psymon_tr_el.qm ||
+|| English || Dimitris Diamantis (kotsifi at gmail.com) || [http://psymon.googlecode.com/svn/trunk/psymondatapack/translations/psymon_tr_en.qm psymon_tr_en.qm] ||
+|| Greek || Dimitris Diamantis (kotsifi at gmail.com) || [http://psymon.googlecode.com/svn/trunk/psymondatapack/translations/psymon_tr_el.qm psymon_tr_el.qm] ||
 || Your language || You (email) || psymon_tr_XX.qm ||
 
 
