@@ -1,0 +1,26 @@
+#labels Featured
+===General===
+Psymon is already translated to some languages.<br>
+You can select the one you wish to use from the settings window.
+<br><br><br>
+
+
+===How to contribute===
+If you wish to help by making a translation to your native language just download the [http://code.google.com/p/psymon/source/browse/trunk/psymondatapack/translations/translation.ts translation.ts] file <br>and open it with the free cross-platform application _Qtlinguist_. After you finished the translation of the strings, <br>make a new release with this format:
+{{{
+psymon_tr_XX.qm
+}}}
+Where  _XX_  put your language [http://en.wikipedia.org/wiki/List_of_ISO_639-1_codes ISO639-1] code.
+
+Then send the generated .qm file at "kotsifi at gmail.com" with subject "Psymon-Translation-_XX_"
+<br><br><br>
+
+===Translations===
+|| *Language* || *Translator* || *.qm file* ||
+|| English || Dimitris Diamantis (kotsifi at gmail.com) || psymon_tr_en.qm ||
+|| Greek || Dimitris Diamantis (kotsifi at gmail.com) || psymon_tr_el.qm ||
+|| Your language || You (email) || psymon_tr_XX.qm ||
+
+
+
+*Note:* If a translation is listed here but is not available from within your version of the application, download the <br>relevant .qm file and copy it under the folder of psymondatapack  _translations_.
