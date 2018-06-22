@@ -16,7 +16,7 @@ performance monitor with the power of python
 #AUTHORS
 
 *Dimitris Diamantis aka ftso
-Email: kotsifi@gmail.com
+Email: diamantisdemetris@gmail.com
 Site: http://www.ftso.gr
 
 
