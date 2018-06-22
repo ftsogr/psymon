@@ -24,6 +24,6 @@ Site: http://www.ftso.gr
 
 Thanks for their support or work:
 *The development teams of the projects:
-PyQt4, Python, Psutil, Python(x,y)
+ PyQt4, Python, Psutil, Python(x,y)
 *The IT professors:
-A.Sidiropoulos and S.Harhalakis
+ A.Sidiropoulos and S.Harhalakis
